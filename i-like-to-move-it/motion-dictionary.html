@@ -260,7 +260,11 @@ pre.code.wrapit { white-space: pre-wrap; font-family: var(--font-body); font-siz
 .lane svg { width: 56px; height: 56px; border-radius: 12px; background: rgba(0,0,0,.2); }
 .lane svg path { fill: none; stroke: var(--accent-2); stroke-width: 3; stroke-linecap: round; }
 .track { position: relative; height: 48px; border-radius: 48px; background: rgba(250,247,252,.04); border: 1px dashed rgba(250,247,252,.12); }
-.runner { position: absolute; left: 4px; top: 4px; bottom: 4px; width: calc(100% - 48px); }
+.track { --run: calc((100% - 46px) / (1 + 2 * var(--o, .1))); --x0: calc(4px + var(--o, .1) * var(--run)); }
+.track::before, .track::after { content: ''; position: absolute; top: 9px; bottom: 9px; width: 0; border-left: 1px dashed rgba(250,247,252,.18); }
+.track::before { left: calc(var(--x0) + 19px); }
+.track::after { left: calc(var(--x0) + var(--run) + 19px); }
+.runner { position: absolute; left: var(--x0); top: 4px; bottom: 4px; width: var(--run); }
 .runner i { position: absolute; left: 0; top: 0; width: 38px; height: 38px; border-radius: 50%; background: var(--c, var(--accent-2)); box-shadow: 0 0 24px -4px var(--c, var(--accent-2)); }
 .lane--you b { color: var(--warm-3); }
 
@@ -896,7 +900,7 @@ function syncEase() {
 
 /* ---------- editor di curve ---------- */
 const bezier = (() => {
-  const W = 150, H = 180, PX = 18, Y0 = 135, YS = 90; // y=0 → 135, y=1 → 45
+  const W = 150, H = 180, PX = 18, Y0 = 130, YS = 66.6, YMIN = -.6, YMAX = 1.8; // y=0 → 130, y=1 → 63, y=1.8 → 10, y=-0.6 → 170
   const X = x => PX + x * (W - 2 * PX), Y = y => Y0 - y * YS;
   const iX = px => (px - PX) / (W - 2 * PX), iY = py => (Y0 - py) / YS;
   let svg, g, locked, cur, dot;
@@ -918,7 +922,7 @@ const bezier = (() => {
     html += `<circle class="dot" id="bezDot" cx="${X(0)}" cy="${Y(0)}" r="5"/>`;
     g.innerHTML = html; dot = $('#bezDot', g);
   }
-  function setDot(x) { if (!dot) return; const y = easeFn(cur)(x); dot.setAttribute('cx', X(x)); dot.setAttribute('cy', Y(y)); }
+  function setDot(x) { if (!dot) return; const y = Math.min(YMAX, Math.max(YMIN, easeFn(cur)(x))); dot.setAttribute('cx', X(x)); dot.setAttribute('cy', Y(y)); }
   let drag = null;
   document.addEventListener('pointerdown', ev => {
     const h = ev.target.closest && ev.target.closest('.hdl'); if (!h || locked) return;
@@ -929,7 +933,7 @@ const bezier = (() => {
   document.addEventListener('pointermove', ev => {
     if (drag === null) return;
     const r = svg.getBoundingClientRect(), sx = W / r.width, sy = H / r.height;
-    const x = Math.min(1, Math.max(0, iX((ev.clientX - r.left) * sx))), y = Math.min(1.9, Math.max(-1, iY((ev.clientY - r.top) * sy)));
+    const x = Math.min(1, Math.max(0, iX((ev.clientX - r.left) * sx))), y = Math.min(YMAX, Math.max(YMIN, iY((ev.clientY - r.top) * sy)));
     E.custom.pts[drag * 2] = r2(x); E.custom.pts[drag * 2 + 1] = r2(y);
     syncEase(); schedule();
   });
@@ -1049,6 +1053,9 @@ function toast(m) { $('#toastT').textContent = m; const t = $('#toast'); t.class
    ========================================================= */
 const LANES = [['linear', '#CFC5E0'], ['in', '#FF7A59'], ['out', '#A78BFA'], ['inout', '#C4B5FD'], ['smooth', '#7C3AED'], ['back', '#FF5E8A'], ['antic', '#FFB45E'], ['custom', '#FAF7FC']];
 const lanesEl = $('#lanes'); let raceAnims = [];
+function easeRange(id) { const f = easeFn(id); let lo = 0, hi = 1; for (let i = 0; i <= 100; i++) { const y = f(i / 100); lo = Math.min(lo, y); hi = Math.max(hi, y); } return [lo, hi]; }
+function fitLanes() { const o = Math.max(.1, ...LANES.map(([id], i) => { const [lo, hi] = easeRange(i === LANES.length - 1 ? laneEase() : id); return Math.max(-lo, hi - 1); })); lanesEl.style.setProperty('--o', (o + .01).toFixed(3)); }
+function thumbPath(id) { const [lo, hi] = easeRange(id); return curvePath(id, 56, 56, 8, Math.min(-.4, lo - .05), Math.max(1.4, hi + .05)); }
 function laneEase() { const d = D[S.id]; return (S.p && !(d.lockEase || d.timingEase)) ? S.p.ease : 'custom'; }
 function renderLanes(onlyYou) {
   if (!lanesEl) return;
@@ -1056,14 +1063,15 @@ function renderLanes(onlyYou) {
     lanesEl.innerHTML = LANES.map(([id, c], i) => {
       const you = i === LANES.length - 1;
       return `<div class="lane ${you ? 'lane--you' : ''}" data-i="${i}"><div class="lane__n"><b>${you ? 'La tua curva' : E[id].name}</b><span>${you ? 'dal Lab: <span class="mono" data-yv></span>' : E[id].note.split('.')[0] + '.'}</span></div>
-        <svg viewBox="0 0 56 56" aria-hidden="true"><path d="${curvePath(id, 56, 56, 8, -.4, 1.4)}"/></svg>
+        <svg viewBox="0 0 56 56" aria-hidden="true"><path d="${thumbPath(id)}"/></svg>
         <div class="track"><div class="runner"><i style="--c:${c}"></i></div></div></div>`;
     }).join('');
     race();
   }
   const you = lanesEl.lastElementChild; if (!you) return;
   const id = laneEase();
-  $('path', you).setAttribute('d', curvePath(id, 56, 56, 8, -.4, 1.4));
+  $('path', you).setAttribute('d', thumbPath(id));
+  fitLanes();
   $('[data-yv]', you).textContent = easeCss(id);
   if (raceAnims.length) { const a = raceAnims[raceAnims.length - 1]; a.effect.setKeyframes([{ transform: 'translateX(0%)', easing: easeCss(id) }, { transform: 'translateX(100%)' }]); }
 }
